@@ -106,6 +106,7 @@ function detectPitch() {
   if (note === b0.note) {
     popBalloon(b0);
     lastPopMs = now;
+  }
   // Wrong note — silent, no flash, no sound
 }
 
