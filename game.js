@@ -43,10 +43,15 @@ let micLevel    = 0;
 let speedBoost  = 0;
 
 // Calibration
-let calibData   = {};
-let calIdx      = 0;
-let calSamples  = [];
-let calCooldown = 0;
+let calibData      = {};   // active calibration (rebuilt each session)
+let savedCalibData = {};   // persists across Play Again so Skip reuses it
+let calIdx         = 0;
+let calSamples     = [];
+let calCooldown    = 0;
+
+// Pitch debounce — require 2 consecutive same-note readings before accepting
+let lastDetNote  = null;
+let lastDetCount = 0;
 
 // ─── AUDIO ───────────────────────────────────────────────────────────────────
 let audioCtx   = null;
@@ -97,10 +102,15 @@ function detectPitch() {
   // ── calibration mode ──
   if (gamePhase === 'calibrating') {
     updateCalMic();
-    const note = freqToNoteChromatic(freq);
-    if (note !== CAL_NOTES[calIdx]) return;
+    // Accept if freq is within 1 semitone of the target note in any octave.
+    // This handles octave-detection errors from autocorrelation.
+    const targetFreqs = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00];
+    const target = targetFreqs[calIdx];
+    const raw = Math.abs(12 * Math.log2(freq / target));
+    const semDist = Math.min(raw % 12, 12 - raw % 12);
+    if (semDist > 1.0) return;
     const now = Date.now();
-    if (now - calCooldown < 400) return;
+    if (now - calCooldown < 350) return;
     calCooldown = now;
     calSamples.push(freq);
     updateCalDots();
@@ -113,18 +123,17 @@ function detectPitch() {
   const note = freqToNote(freq);
   if (!note || !COLORS[note]) return;
 
+  // Debounce: require 2 consecutive same-note detections before accepting.
+  // Prevents spurious single-frame detections and held-note double-pops.
+  if (note !== lastDetNote) { lastDetNote = note; lastDetCount = 1; return; }
+  lastDetCount++;
+  if (lastDetCount < 2) return;
+
   const now = Date.now();
-  if (now - lastPopMs < 120) return;
+  if (now - lastPopMs < 350) return;
 
   const b0 = balloons[0];
-  if (!b0) return;
-
-  if (b0.state === 'popping') {
-    // b0 just popped — accept the next balloon's note immediately
-    const b1 = balloons.find(b => b.state !== 'popping');
-    if (b1 && note === b1.note) { popBalloon(b1); lastPopMs = now; }
-    return;
-  }
+  if (!b0 || b0.state === 'popping') return;
 
   if (Math.abs(b0.y - b0.targetY) > 130) return;
 
@@ -165,21 +174,20 @@ function freqToNoteChromatic(freq) {
   return names[((midi % 12) + 12) % 12];
 }
 
-// Calibration-aware detection
+// Calibration-aware detection.
+// Uses semitone-based octave-invariant distance so any octave of a calibrated note matches.
 function freqToNote(freq) {
   if (freq < 80 || freq > 2100) return null;
 
   if (Object.keys(calibData).length === 6) {
-    let best = null, bestDist = Infinity;
+    let best = null, bestSt = Infinity;
     for (const [note, baseFreq] of Object.entries(calibData)) {
-      // Fold freq into the same octave as baseFreq
-      let f = freq;
-      while (f > baseFreq * 1.45) f /= 2;
-      while (f < baseFreq * 0.69) f *= 2;
-      const dist = Math.abs(f - baseFreq) / baseFreq;
-      if (dist < bestDist) { bestDist = dist; best = note; }
+      const raw = 12 * Math.log2(freq / baseFreq);
+      const mod = ((raw % 12) + 12) % 12;
+      const st  = Math.min(mod, 12 - mod); // 0–6 semitones, octave-invariant
+      if (st < bestSt) { bestSt = st; best = note; }
     }
-    return bestDist < 0.12 ? best : null;
+    return bestSt < 0.7 ? best : null; // within 0.7 semitones of a calibrated note
   }
 
   // Default: chromatic, game notes only
@@ -196,6 +204,7 @@ function startCalibration() {
   document.getElementById('calScreen').style.display = 'flex';
   gamePhase = 'calibrating';
   updateCalUI();
+  updateSkipBtn();
 }
 
 function updateCalUI() {
@@ -242,6 +251,8 @@ function finishCalNote() {
   calIdx++;
   calSamples = [];
   if (calIdx >= CAL_NOTES.length) {
+    savedCalibData = { ...calibData }; // persist for next Play Again
+    updateSkipBtn();
     beginGame();
   } else {
     updateCalUI();
@@ -249,8 +260,17 @@ function finishCalNote() {
 }
 
 function skipCalibration() {
-  calibData = {};
+  // Reuse last tuning if available, otherwise fall back to default detection
+  calibData = Object.keys(savedCalibData).length === 6 ? { ...savedCalibData } : {};
   beginGame();
+}
+
+function updateSkipBtn() {
+  const btn = document.getElementById('skipCalBtn');
+  if (!btn) return;
+  btn.textContent = Object.keys(savedCalibData).length === 6
+    ? 'Skip — keep last tuning →'
+    : 'Skip Tuning →';
 }
 
 function beginGame() {
@@ -301,7 +321,9 @@ function popBalloon(b) {
   b.state = 'popping';
   spawnConfetti(b);
   playPop();
-  speedBoost = 1;
+  speedBoost   = 1;
+  lastDetNote  = null; // force player to re-trigger next note; prevents held-note double-pop
+  lastDetCount = 0;
   setTimeout(() => {
     balloons = balloons.filter(x => x !== b);
     songIdx++;
