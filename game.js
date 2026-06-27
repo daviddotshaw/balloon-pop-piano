@@ -67,7 +67,13 @@ async function startMic() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     const src    = audioCtx.createMediaStreamSource(stream);
     analyser     = audioCtx.createAnalyser();
-    analyser.fftSize               = 4096;
+    // Target ~90ms window regardless of sample rate.
+    // At 8000 Hz the default 4096 gives a 512ms window — far too long.
+    const targetSamples = Math.round(audioCtx.sampleRate * 0.09);
+    const fftSize = Math.min(4096, Math.max(512,
+      Math.pow(2, Math.ceil(Math.log2(targetSamples)))
+    ));
+    analyser.fftSize               = fftSize;
     analyser.smoothingTimeConstant = 0;
     src.connect(analyser);
     pitchBuf   = new Float32Array(analyser.fftSize);
@@ -102,13 +108,15 @@ function detectPitch() {
   // ── calibration mode ──
   if (gamePhase === 'calibrating') {
     updateCalMic();
-    // Accept if freq is within 1 semitone of the target note in any octave.
-    // This handles octave-detection errors from autocorrelation.
+    // Accept if freq is within 2.5 semitones of the target note in any octave.
+    // 2.5 semitones handles pianos tuned up to ~1 semitone sharp or flat
+    // and autocorrelation jitter, while still rejecting the adjacent game note.
     const targetFreqs = [261.63, 293.66, 329.63, 349.23, 392.00, 440.00];
-    const target = targetFreqs[calIdx];
-    const raw = Math.abs(12 * Math.log2(freq / target));
-    const semDist = Math.min(raw % 12, 12 - raw % 12);
-    if (semDist > 1.0) return;
+    const target  = targetFreqs[calIdx];
+    const rawSt   = Math.abs(12 * Math.log2(freq / target));
+    const semDist = Math.min(rawSt % 12, 12 - rawSt % 12);
+    updateCalHeard(freq);        // show user what the mic is picking up
+    if (semDist > 2.5) return;
     const now = Date.now();
     if (now - calCooldown < 350) return;
     calCooldown = now;
@@ -154,7 +162,7 @@ function autoCorrelate(buf, sr) {
     for (let i = 0; i < HALF; i++) c += Math.abs(buf[i] - buf[i + o]);
     c = 1 - c / HALF;
     corrs[o] = c;
-    if (c > 0.9 && c > lastC) {
+    if (c > 0.75 && c > lastC) {
       found = true;
       if (c > bestC) { bestC = c; best = o; }
     } else if (found) {
@@ -243,6 +251,16 @@ function updateCalDots() {
 function updateCalMic() {
   const fill = document.getElementById('calMicFill');
   if (fill) fill.style.width = `${micLevel * 100}%`;
+}
+
+function updateCalHeard(freq) {
+  const el = document.getElementById('calHeard');
+  if (!el || freq < 80) return;
+  const midi  = Math.round(12 * Math.log2(freq / 440) + 69);
+  const names = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const note  = names[((midi % 12) + 12) % 12];
+  const oct   = Math.floor(midi / 12) - 1;
+  el.textContent = `Hearing: ${note}${oct}  (${Math.round(freq)} Hz)`;
 }
 
 function finishCalNote() {
