@@ -55,17 +55,22 @@ let sfxCtx     = null;
 
 async function startMic() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    // AudioContext must be created synchronously during the user gesture (before any await)
+    // — this is required by iOS Safari
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    await audioCtx.resume();
+
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     const src = audioCtx.createMediaStreamSource(stream);
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 4096;
     analyser.smoothingTimeConstant = 0;
     src.connect(analyser);
-    pitchBuf  = new Float32Array(analyser.fftSize);
+    pitchBuf   = new Float32Array(analyser.fftSize);
     pitchTimer = setInterval(detectPitch, 80);
     return true;
-  } catch {
+  } catch (err) {
+    console.error('startMic error:', err);
     document.getElementById('startScreen').style.display    = 'none';
     document.getElementById('micErrorScreen').style.display = 'flex';
     return false;
