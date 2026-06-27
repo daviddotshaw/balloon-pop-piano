@@ -45,7 +45,6 @@ let fireworks  = [];
 let stars      = [];
 let lastPopMs  = 0;
 let micLevel   = 0;
-let wrongFlash = 0;  // frames remaining for red flash
 
 // ─── AUDIO / PITCH DETECTION ─────────────────────────────────────────────────
 let audioCtx   = null;
@@ -96,7 +95,7 @@ function detectPitch() {
   if (!note || !COLORS[note]) return;
 
   const now = Date.now();
-  if (now - lastPopMs < 220) return;  // short cooldown so C-C pairs work
+  if (now - lastPopMs < 120) return;  // fast cooldown for quick repeated notes
 
   // Accept balloon[0] once it's within 130px of its target (not just when fully stopped)
   const b0 = balloons[0];
@@ -107,13 +106,7 @@ function detectPitch() {
   if (note === b0.note) {
     popBalloon(b0);
     lastPopMs = now;
-  } else {
-    // Check if the note matches the NEXT balloon — if so, don't penalise
-    const b1 = balloons[1];
-    if (b1 && !b1.state === 'popping' && note === b1.note) return;
-    wrongFlash = 10;
-    playWoodBlock();
-  }
+  // Wrong note — silent, no flash, no sound
 }
 
 function autoCorrelate(buf, sr) {
@@ -272,52 +265,39 @@ function playPop() {
   osc.start(t); osc.stop(t + 0.14);
 }
 
-function playWoodBlock() {
-  // Short "tock" — conductor tapping baton on music stand
-  const a = sfx(), t = a.currentTime;
-  const osc  = a.createOscillator();
-  const osc2 = a.createOscillator();
-  const g    = a.createGain();
-  osc.connect(g); osc2.connect(g); g.connect(a.destination);
-  osc.type  = 'sine';
-  osc2.type = 'sine';
-  osc.frequency.setValueAtTime(1400, t);
-  osc.frequency.exponentialRampToValueAtTime(700, t + 0.05);
-  osc2.frequency.value = 2100;
-  g.gain.setValueAtTime(0.3, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
-  osc.start(t);  osc.stop(t + 0.08);
-  osc2.start(t); osc2.stop(t + 0.04);
+function playPianoNote(a, freq, startTime, dur) {
+  // Simulate piano timbre: sine harmonics with fast attack, natural decay
+  [[1, 0.55], [2, 0.22], [3, 0.09], [4.1, 0.05], [5, 0.03]].forEach(([mult, amp]) => {
+    const osc = a.createOscillator();
+    const g   = a.createGain();
+    osc.connect(g); g.connect(a.destination);
+    osc.type = 'sine';
+    osc.frequency.value = freq * mult;
+    const decay = dur * (0.9 / mult);  // higher harmonics fade faster
+    g.gain.setValueAtTime(0, startTime);
+    g.gain.linearRampToValueAtTime(amp, startTime + 0.006);   // sharp attack
+    g.gain.exponentialRampToValueAtTime(amp * 0.25, startTime + 0.08); // quick drop
+    g.gain.exponentialRampToValueAtTime(0.001, startTime + decay);
+    osc.start(startTime); osc.stop(startTime + decay + 0.05);
+  });
 }
 
 function playVictoryFanfare() {
-  // Plays Twinkle Twinkle Little Star — first two phrases
+  // Twinkle Twinkle Little Star — first two phrases, piano-style
   const a = sfx();
   const C = 261.63, D = 293.66, E = 329.63, F = 349.23, G = 392.00, A = 440.00;
-  const BPM = 116;
-  const beat = 60 / BPM; // seconds per beat
+  const beat = 60 / 112; // seconds per beat at 112 BPM
 
-  // [frequency, beat-offset, duration-in-beats]
+  // [freq, beat-start, duration-in-beats]
   const notes = [
     [C, 0,  1], [C, 1,  1], [G, 2,  1], [G, 3,  1],
     [A, 4,  1], [A, 5,  1], [G, 6,  2],
     [F, 8,  1], [F, 9,  1], [E, 10, 1], [E, 11, 1],
-    [D, 12, 1], [D, 13, 1], [C, 14, 2],
+    [D, 12, 1], [D, 13, 1], [C, 14, 3],
   ];
 
-  notes.forEach(([freq, beatOff, dur]) => {
-    const t     = a.currentTime + 0.15 + beatOff * beat;
-    const noteDur = dur * beat * 0.85;
-    const osc  = a.createOscillator();
-    const gain = a.createGain();
-    osc.connect(gain); gain.connect(a.destination);
-    osc.type = 'triangle';
-    osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0, t);
-    gain.gain.linearRampToValueAtTime(0.4, t + 0.03);
-    gain.gain.setValueAtTime(0.4, t + noteDur - 0.04);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + noteDur);
-    osc.start(t); osc.stop(t + noteDur + 0.01);
+  notes.forEach(([freq, b, dur]) => {
+    playPianoNote(a, freq, a.currentTime + 0.2 + b * beat, dur * beat * 0.9);
   });
 }
 
@@ -328,7 +308,6 @@ function resetGame() {
   particles  = [];
   fireworks  = [];
   lastPopMs  = 0;
-  wrongFlash = 0;
 
   for (let i = 0; i < Math.min(VISIBLE_CNT, SONG.length); i++) {
     const b = makeBalloon(i);
@@ -410,23 +389,30 @@ function drawStars(t) {
   }
 }
 
-function drawHitZone() {
-  const g = cx.createLinearGradient(0, HIT_Y - 55, 0, HIT_Y + 55);
-  g.addColorStop(0,   'rgba(255,255,255,0)');
-  g.addColorStop(0.5, 'rgba(255,255,255,0.07)');
-  g.addColorStop(1,   'rgba(255,255,255,0)');
-  cx.fillStyle = g;
-  cx.fillRect(0, HIT_Y - 55, canvas.width, 110);
+function drawHitZone(t) {
+  const rx = Math.min(canvas.width * 0.42, 210);
+  const ry = BALLOON_R + 16;
+  const pulse = 0.65 + 0.35 * Math.sin(t * 0.0025);
 
+  // Soft filled glow inside the oval
   cx.save();
-  cx.strokeStyle = 'rgba(255,255,255,0.28)';
-  cx.lineWidth = 1.5;
-  cx.setLineDash([14, 9]);
   cx.beginPath();
-  cx.moveTo(0, HIT_Y);
-  cx.lineTo(canvas.width, HIT_Y);
+  cx.ellipse(canvas.width / 2, HIT_Y, rx, ry, 0, 0, Math.PI * 2);
+  const fill = cx.createRadialGradient(canvas.width / 2, HIT_Y, 0, canvas.width / 2, HIT_Y, rx);
+  fill.addColorStop(0,   `rgba(255,240,150,${0.13 * pulse})`);
+  fill.addColorStop(0.6, `rgba(255,220,80,${0.06 * pulse})`);
+  fill.addColorStop(1,   'rgba(255,200,50,0)');
+  cx.fillStyle = fill;
+  cx.fill();
+
+  // Glowing oval border
+  cx.beginPath();
+  cx.ellipse(canvas.width / 2, HIT_Y, rx, ry, 0, 0, Math.PI * 2);
+  cx.strokeStyle = `rgba(255,230,120,${0.55 * pulse})`;
+  cx.lineWidth   = 2.5;
+  cx.shadowColor = 'rgba(255,210,80,0.7)';
+  cx.shadowBlur  = 18;
   cx.stroke();
-  cx.setLineDash([]);
   cx.restore();
 }
 
@@ -643,16 +629,6 @@ function drawHUD(t) {
     cx.fill();
   }
 
-  // Wrong note flash overlay
-  if (wrongFlash > 0) {
-    wrongFlash--;
-    cx.save();
-    cx.globalAlpha = (wrongFlash / 10) * 0.28;
-    cx.fillStyle   = '#FF3B30';
-    cx.fillRect(0, 0, canvas.width, canvas.height);
-    cx.restore();
-  }
-
   // Footer
   cx.fillStyle    = 'rgba(255,255,200,0.28)';
   cx.font         = '12px Arial';
@@ -683,7 +659,7 @@ function loop(t) {
   drawStars(t);
 
   if (gamePhase === 'playing') {
-    drawHitZone();
+    drawHitZone(t);
     drawBalloons(t);
     drawParticles();
     drawHUD(t);
