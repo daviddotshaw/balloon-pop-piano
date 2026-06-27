@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="110" fill="#080520"/>
+  <!-- Stars -->
+  <circle cx="80"  cy="70"  r="6" fill="#FFD60A" opacity="0.9"/>
+  <circle cx="420" cy="90"  r="4" fill="#FFD60A" opacity="0.7"/>
+  <circle cx="440" cy="180" r="5" fill="#FFD60A" opacity="0.8"/>
+  <circle cx="60"  cy="200" r="3" fill="#FFD60A" opacity="0.6"/>
+  <circle cx="380" cy="50"  r="3" fill="#FFD60A" opacity="0.7"/>
+  <!-- Balloon body -->
+  <ellipse cx="256" cy="210" rx="105" ry="130" fill="#FF3B30"/>
+  <ellipse cx="218" cy="175" rx="32"  ry="50"   fill="rgba(255,255,255,0.35)"/>
+  <!-- Knot -->
+  <polygon points="256,340 242,362 270,362" fill="#CC1A0A"/>
+  <!-- String -->
+  <path d="M256 362 Q270 400 252 430 Q238 460 256 490"
+        stroke="rgba(255,255,255,0.6)" stroke-width="5" fill="none" stroke-linecap="round"/>
+  <!-- Note letter -->
+  <text x="256" y="233" font-family="Arial" font-weight="900" font-size="110"
+        fill="white" text-anchor="middle" dominant-baseline="middle">C</text>
+</svg>
