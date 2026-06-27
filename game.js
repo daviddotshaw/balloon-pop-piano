@@ -665,7 +665,6 @@ function loop(t) {
   drawStars(t);
 
   if (gamePhase === 'playing') {
-    drawHitZone(t);
     drawBalloons(t);
     drawParticles();
     drawHUD(t);
