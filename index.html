@@ -202,6 +202,70 @@
       margin-top: 6px;
     }
 
+    /* ── CALIBRATION SCREEN ── */
+    #calScreen { display: none; }
+    .cal-box {
+      position: relative; z-index: 1;
+      background: rgba(255,255,255,0.06);
+      border: 2px solid rgba(255,255,255,0.12);
+      border-radius: 24px;
+      padding: 28px 24px;
+      max-width: 340px; width: 100%;
+      display: flex; flex-direction: column;
+      align-items: center; gap: 16px;
+    }
+    .cal-title { font-size: 20px; font-weight: 800; color: #fff; text-align: center; }
+    .cal-instructions { font-size: 15px; color: rgba(255,255,255,0.65); text-align: center; min-height: 1.4em; }
+    .cal-note-dot {
+      width: 96px; height: 96px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 46px; font-weight: 900; color: #fff;
+      transition: background 0.35s, box-shadow 0.35s;
+    }
+    .cal-sample-dots { display: flex; gap: 12px; }
+    .cal-dot {
+      width: 16px; height: 16px; border-radius: 50%;
+      background: rgba(255,255,255,0.18);
+      transition: background 0.2s;
+    }
+    .cal-dot.filled { background: #FFD60A; box-shadow: 0 0 8px #FFD60A; }
+    .cal-mic {
+      width: 220px; height: 8px;
+      background: rgba(255,255,255,0.12); border-radius: 4px; overflow: hidden;
+    }
+    .cal-mic-fill {
+      height: 100%; width: 0%; border-radius: 4px;
+      background: linear-gradient(90deg, #30D158, #FFD60A);
+      transition: width 0.05s;
+    }
+    .cal-notes-track { display: flex; gap: 8px; align-items: center; margin-top: 2px; }
+    .cal-track-note {
+      width: 34px; height: 34px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700;
+      border: 2px solid rgba(255,255,255,0.15);
+      transition: all 0.3s;
+    }
+    #skipCalBtn {
+      background: rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.65);
+      font-size: 15px; padding: 12px 28px;
+    }
+
+    /* ── STOP BUTTON ── */
+    #stopBtn {
+      display: none;
+      position: fixed; top: 50px; right: 14px; z-index: 20;
+      background: rgba(255,255,255,0.14);
+      border: 1px solid rgba(255,255,255,0.22);
+      color: rgba(255,255,255,0.85);
+      font-size: 14px; font-weight: 700;
+      padding: 9px 16px; border-radius: 20px;
+      cursor: pointer; backdrop-filter: blur(6px);
+      letter-spacing: 0.2px;
+    }
+    #stopBtn:active { background: rgba(255,255,255,0.25); }
+
     /* ── VICTORY SCREEN ── */
     #victoryScreen {
       display: none;
@@ -295,6 +359,34 @@
     </div>
   </div>
 
+  <!-- ── STOP BUTTON (shown during play) ── -->
+  <button id="stopBtn">✕ Stop</button>
+
+  <!-- ── CALIBRATION SCREEN ── -->
+  <div id="calScreen" class="screen">
+    <div class="bg-stars" id="calStars"></div>
+    <div class="cal-box">
+      <div class="cal-title">🎹 Tune to your piano</div>
+      <div class="cal-instructions" id="calInstructions">Play C on your piano a few times</div>
+      <div class="cal-note-dot" id="calNoteDot" style="background:#FF3B30;box-shadow:0 0 36px #FF3B3088">C</div>
+      <div class="cal-sample-dots" id="calSampleDots">
+        <div class="cal-dot"></div>
+        <div class="cal-dot"></div>
+        <div class="cal-dot"></div>
+      </div>
+      <div class="cal-mic"><div class="cal-mic-fill" id="calMicFill"></div></div>
+      <div class="cal-notes-track">
+        <div class="cal-track-note" id="calTrack-C" style="background:#FF3B30;color:#fff;border-color:#FF3B30;transform:scale(1.22)">C</div>
+        <div class="cal-track-note" id="calTrack-D" style="color:rgba(255,255,255,0.3)">D</div>
+        <div class="cal-track-note" id="calTrack-E" style="color:rgba(255,255,255,0.3)">E</div>
+        <div class="cal-track-note" id="calTrack-F" style="color:rgba(255,255,255,0.3)">F</div>
+        <div class="cal-track-note" id="calTrack-G" style="color:rgba(255,255,255,0.3)">G</div>
+        <div class="cal-track-note" id="calTrack-A" style="color:rgba(255,255,255,0.3)">A</div>
+      </div>
+      <button class="btn" id="skipCalBtn">Skip Tuning →</button>
+    </div>
+  </div>
+
   <!-- ── MIC ERROR SCREEN ── -->
   <div id="micErrorScreen" class="screen">
     <div class="mic-box">
@@ -353,6 +445,7 @@
       }
     }
     makeStars('startStars', 70);
+    makeStars('calStars', 60);
   </script>
 
   <script src="game.js"></script>

@@ -1,4 +1,4 @@
-const CACHE = 'balloon-pop-v2';
+const CACHE = 'balloon-pop-v3';
 const ASSETS = ['./', './index.html', './game.js', './manifest.json', './icon.svg'];
 
 self.addEventListener('install', e => {
