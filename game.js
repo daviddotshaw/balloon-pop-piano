@@ -96,17 +96,23 @@ function detectPitch() {
   if (!note || !COLORS[note]) return;
 
   const now = Date.now();
-  if (now - lastPopMs < 550) return;
+  if (now - lastPopMs < 220) return;  // short cooldown so C-C pairs work
 
-  const active = balloons.find(b => b.state === 'waiting');
-  if (!active) return;
+  // Accept balloon[0] once it's within 130px of its target (not just when fully stopped)
+  const b0 = balloons[0];
+  if (!b0 || b0.state === 'popping') return;
+  const nearZone = Math.abs(b0.y - b0.targetY) < 130;
+  if (!nearZone) return;
 
-  if (note === active.note) {
-    popBalloon(active);
+  if (note === b0.note) {
+    popBalloon(b0);
     lastPopMs = now;
   } else {
+    // Check if the note matches the NEXT balloon — if so, don't penalise
+    const b1 = balloons[1];
+    if (b1 && !b1.state === 'popping' && note === b1.note) return;
     wrongFlash = 10;
-    playBuzz();
+    playWoodBlock();
   }
 }
 
@@ -266,32 +272,52 @@ function playPop() {
   osc.start(t); osc.stop(t + 0.14);
 }
 
-function playBuzz() {
+function playWoodBlock() {
+  // Short "tock" — conductor tapping baton on music stand
   const a = sfx(), t = a.currentTime;
-  const osc = a.createOscillator();
-  const g   = a.createGain();
-  osc.connect(g); g.connect(a.destination);
-  osc.type = 'square';
-  osc.frequency.value = 140;
-  g.gain.setValueAtTime(0.12, t);
-  g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
-  osc.start(t); osc.stop(t + 0.09);
+  const osc  = a.createOscillator();
+  const osc2 = a.createOscillator();
+  const g    = a.createGain();
+  osc.connect(g); osc2.connect(g); g.connect(a.destination);
+  osc.type  = 'sine';
+  osc2.type = 'sine';
+  osc.frequency.setValueAtTime(1400, t);
+  osc.frequency.exponentialRampToValueAtTime(700, t + 0.05);
+  osc2.frequency.value = 2100;
+  g.gain.setValueAtTime(0.3, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+  osc.start(t);  osc.stop(t + 0.08);
+  osc2.start(t); osc2.stop(t + 0.04);
 }
 
 function playVictoryFanfare() {
+  // Plays Twinkle Twinkle Little Star — first two phrases
   const a = sfx();
-  const melody = [261.63, 329.63, 392, 523.25, 659.25, 783.99, 1046.5, 1046.5];
-  melody.forEach((freq, i) => {
-    const t = a.currentTime + i * 0.13;
+  const C = 261.63, D = 293.66, E = 329.63, F = 349.23, G = 392.00, A = 440.00;
+  const BPM = 116;
+  const beat = 60 / BPM; // seconds per beat
+
+  // [frequency, beat-offset, duration-in-beats]
+  const notes = [
+    [C, 0,  1], [C, 1,  1], [G, 2,  1], [G, 3,  1],
+    [A, 4,  1], [A, 5,  1], [G, 6,  2],
+    [F, 8,  1], [F, 9,  1], [E, 10, 1], [E, 11, 1],
+    [D, 12, 1], [D, 13, 1], [C, 14, 2],
+  ];
+
+  notes.forEach(([freq, beatOff, dur]) => {
+    const t     = a.currentTime + 0.15 + beatOff * beat;
+    const noteDur = dur * beat * 0.85;
     const osc  = a.createOscillator();
     const gain = a.createGain();
     osc.connect(gain); gain.connect(a.destination);
     osc.type = 'triangle';
     osc.frequency.value = freq;
     gain.gain.setValueAtTime(0, t);
-    gain.gain.linearRampToValueAtTime(0.38, t + 0.05);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
-    osc.start(t); osc.stop(t + 0.55);
+    gain.gain.linearRampToValueAtTime(0.4, t + 0.03);
+    gain.gain.setValueAtTime(0.4, t + noteDur - 0.04);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + noteDur);
+    osc.start(t); osc.stop(t + noteDur + 0.01);
   });
 }
 
