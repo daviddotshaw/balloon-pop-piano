@@ -246,10 +246,51 @@
       border: 2px solid rgba(255,255,255,0.15);
       transition: all 0.3s;
     }
-    #skipCalBtn {
+    /* ── SETTINGS GEAR ── */
+    #settingsBtn {
+      position: absolute;
+      top: 18px; right: 18px;
       background: rgba(255,255,255,0.1);
-      color: rgba(255,255,255,0.65);
-      font-size: 15px; padding: 12px 28px;
+      border: 1px solid rgba(255,255,255,0.18);
+      color: rgba(255,255,255,0.7);
+      font-size: 22px;
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+      z-index: 2;
+    }
+    #settingsBtn:active { background: rgba(255,255,255,0.22); }
+
+    #tuningBadge {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+      margin-top: -4px;
+      transition: color 0.4s;
+    }
+
+    /* ── CALIBRATION BUTTONS ── */
+    .cal-btn-row {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      margin-top: 2px;
+    }
+    .cal-btn-row .btn {
+      flex: 1;
+      font-size: 14px;
+      padding: 12px 10px;
+    }
+    #calBackBtn {
+      background: rgba(255,255,255,0.1);
+      color: rgba(255,255,255,0.75);
+    }
+    #resetCalBtn {
+      background: rgba(255,59,48,0.18);
+      color: rgba(255,180,160,0.9);
+      border: 1px solid rgba(255,59,48,0.3);
     }
 
     /* ── STOP BUTTON ── */
@@ -316,6 +357,7 @@
   <!-- ── START SCREEN ── -->
   <div id="startScreen" class="screen">
     <div class="bg-stars" id="startStars"></div>
+    <button id="settingsBtn" title="Tune to your piano">⚙️</button>
     <div class="content">
       <div class="title">🎈 Balloon<br>Pop Piano</div>
       <div class="subtitle">⭐ Twinkle Twinkle Little Star ⭐</div>
@@ -356,6 +398,7 @@
       </div>
 
       <button class="btn" id="startBtn">🎵 Let's Play!</button>
+      <div id="tuningBadge" style="color:rgba(255,255,200,0.45)">🎵 Standard tuning</div>
     </div>
   </div>
 
@@ -384,7 +427,10 @@
         <div class="cal-track-note" id="calTrack-G" style="color:rgba(255,255,255,0.3)">G</div>
         <div class="cal-track-note" id="calTrack-A" style="color:rgba(255,255,255,0.3)">A</div>
       </div>
-      <button class="btn" id="skipCalBtn">Skip Tuning →</button>
+      <div class="cal-btn-row">
+        <button class="btn" id="calBackBtn">← Back</button>
+        <button class="btn" id="resetCalBtn">Reset</button>
+      </div>
     </div>
   </div>
 
