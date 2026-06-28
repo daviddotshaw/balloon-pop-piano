@@ -104,73 +104,60 @@ function detectPitch() {
   if (!analyser) return;
   analyser.getFloatTimeDomainData(pitchBuf);
 
-  // Raw RMS (unnormalised) for onset; amplified version for the HUD meter
   let sumSq = 0;
   for (let i = 0; i < pitchBuf.length; i++) sumSq += pitchBuf[i] ** 2;
   const rawRms = Math.sqrt(sumSq / pitchBuf.length);
   micLevel = Math.min(1, rawRms * 14);
 
-  // ── Onset detection ──────────────────────────────────────────────────────
-  // Compare current RMS to 400 ms ago. Piano attacks rise 3-10× in one frame;
-  // ambient noise and sustained notes do not.
-  const slot    = rmsHistIdx % RMS_HIST;
-  const prevRms = rmsHistory[slot];
-  rmsHistory[slot] = rawRms;
-  rmsHistIdx++;
-
-  const isOnset = rawRms > 0.022 && rawRms > prevRms * 2.2;
-  const now = Date.now();
-  if (isOnset) onsetEnd = now + 280;      // 280 ms window to register the note
-  const inOnset = now <= onsetEnd;
-
-  // Always update the calibration mic bar so it doesn't freeze
-  if (gamePhase === 'calibrating') updateCalMic();
-
-  // Nothing to do outside an onset window
-  if (!inOnset) return;
-
-  const freq = autoCorrelate(pitchBuf, audioCtx.sampleRate);
-  if (freq < 0) return;
-
-  // ── Calibration mode ──────────────────────────────────────────────────────
+  // ── Calibration mode: onset-gated ────────────────────────────────────────
+  // Notes are played from silence, so onset detection works perfectly here:
+  // one dot per key press, ambient noise is ignored.
   if (gamePhase === 'calibrating') {
+    updateCalMic();
+    const slot    = rmsHistIdx % RMS_HIST;
+    const prevRms = rmsHistory[slot];
+    rmsHistory[slot] = rawRms;
+    rmsHistIdx++;
+    const now     = Date.now();
+    const isOnset = rawRms > 0.022 && rawRms > prevRms * 2.2;
+    if (isOnset) onsetEnd = now + 280;
+    if (now > onsetEnd) return;
+    const freq = autoCorrelate(pitchBuf, audioCtx.sampleRate);
+    if (freq < 0) return;
     const target  = CAL_REF_HZ[CAL_NOTES[calIdx]];
     const rawSt   = Math.abs(12 * Math.log2(freq / target));
     const semDist = Math.min(rawSt % 12, 12 - rawSt % 12);
     updateCalHeard(freq);
-    // 2.5-semitone window handles pianos tuned a full semitone sharp or flat
     if (semDist > 2.5) return;
-    // One sample per distinct onset (extra cooldown prevents multiple fills
-    // from a single slow attack)
     if (now - calCooldown < 600) return;
     calCooldown = now;
-    onsetEnd = 0;            // close window so next dot needs a fresh key press
+    onsetEnd = 0;       // close window; next dot needs a fresh key press
     calSamples.push(freq);
     updateCalDots();
     if (calSamples.length >= CAL_SAMPLES) finishCalNote();
     return;
   }
 
-  // ── Game mode ─────────────────────────────────────────────────────────────
+  // ── Game mode: debounce + post-pop cooldown ───────────────────────────────
+  // Onset detection is NOT used here. When playing a melody, consecutive notes
+  // keep rmsHistory elevated so the next note can't meet the 2.2× jump
+  // threshold — that approach only works when playing from silence.
+  // Instead: require 2 consecutive same-note reads (filters noise) and a
+  // 350 ms cooldown after each pop (prevents the ringing note re-triggering).
   if (gamePhase !== 'playing') return;
-
+  const freq = autoCorrelate(pitchBuf, audioCtx.sampleRate);
+  if (freq < 0) return;
   const note = freqToNote(freq);
   if (!note || !COLORS[note]) return;
-
-  // Require 2 consecutive same-note detections within the onset window.
-  // Filters single-frame noise spikes that happened to trigger an onset
-  // (e.g. a door slam unlikely to produce two consistent pitch readings).
   if (note !== lastDetNote) { lastDetNote = note; lastDetCount = 1; return; }
   lastDetCount++;
   if (lastDetCount < 2) return;
-
+  const now = Date.now();
   if (now - lastPopMs < 350) return;
-
   const b0 = balloons[0];
   if (!b0 || b0.state === 'popping') return;
   if (Math.abs(b0.y - b0.targetY) > 130) return;
   if (note !== b0.note) return;
-
   popBalloon(b0);
   lastPopMs = now;
 }
@@ -464,7 +451,6 @@ function popBalloon(b) {
   speedBoost   = 1;
   lastDetNote  = null;
   lastDetCount = 0;
-  onsetEnd     = 0;      // close onset window; next balloon needs a fresh key press
   setTimeout(() => {
     balloons = balloons.filter(x => x !== b);
     songIdx++;
