@@ -169,29 +169,33 @@ function autoCorrelate(buf, sr) {
   // Only scan lags that correspond to the playable frequency range (80–2000 Hz).
   // This cuts the inner loop from O(HALF²) to O(~500×HALF) — ~10× faster on phone.
   const minLag = Math.max(1, Math.floor(sr / 2000));
-  const maxLag = Math.min(HALF - 1, Math.ceil(sr / 80));
+  const maxLag = Math.min(HALF - 2, Math.ceil(sr / 80));
 
-  let best = -1, bestC = 0, lastC = 1, found = false;
-  const corrs = new Float32Array(HALF);
-
+  const corrs = new Float32Array(maxLag + 2);
   for (let o = minLag; o <= maxLag; o++) {
     let c = 0;
     for (let i = 0; i < HALF; i++) c += Math.abs(buf[i] - buf[i + o]);
-    c = 1 - c / HALF;
-    corrs[o] = c;
-    if (c > 0.75 && c > lastC) {
-      found = true;
-      if (c > bestC) { bestC = c; best = o; }
-    } else if (found) {
-      const prev = corrs[Math.max(minLag, best - 1)];
-      const next = corrs[Math.min(maxLag, best + 1)];
-      const denom = prev - 2 * bestC + next;
-      const shift = Math.abs(denom) > 1e-9 ? 0.5 * (prev - next) / denom : 0;
-      return sr / (best + shift);
-    }
-    lastC = c;
+    corrs[o] = 1 - c / HALF;
   }
-  return best > 0 ? sr / best : -1;
+
+  // Scan from the LONGEST lag (lowest frequency) down to the shortest (highest
+  // frequency) and accept the first clear peak above threshold. A struck piano
+  // note's fundamental is the longest period with strong self-similarity —
+  // its harmonics/overtones only produce peaks at shorter lags (higher
+  // frequencies). Scanning the other direction (short→long, as this used to)
+  // grabs whichever harmonic happens to be loudest first, which is why
+  // detection was jumping to unrelated pitches (e.g. a played D reading back
+  // as A#, C#, G# — all different overtones, not even octaves of D).
+  for (let o = maxLag - 1; o >= minLag + 1; o--) {
+    const c = corrs[o];
+    if (c > 0.7 && c >= corrs[o - 1] && c >= corrs[o + 1]) {
+      const prev = corrs[o - 1], next = corrs[o + 1];
+      const denom = prev - 2 * c + next;
+      const shift = Math.abs(denom) > 1e-9 ? 0.5 * (prev - next) / denom : 0;
+      return sr / (o + shift);
+    }
+  }
+  return -1;
 }
 
 // ─── NOTE NAMING ─────────────────────────────────────────────────────────────
