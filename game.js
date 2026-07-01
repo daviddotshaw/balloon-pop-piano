@@ -159,43 +159,72 @@ function detectPitch() {
   lastPopMs = now;
 }
 
-// ─── AUTOCORRELATION ─────────────────────────────────────────────────────────
+// ─── PITCH DETECTION: YIN ────────────────────────────────────────────────────
+// A simple "find the first correlation peak" scan (tried both directions
+// previously) is unreliable on real piano audio: scanning short→long lag
+// locks onto overtones (loud harmonics found before the true fundamental);
+// scanning long→short hits a boundary artifact where quiet/non-periodic
+// signal looks spuriously "correlated" at the very edge of the scan range.
+// YIN (de Cheveigné & Kawahara, 2002) fixes both by normalizing the
+// difference function against its own running average, so the true period
+// shows a sharp dip below a fixed threshold instead of relying on peak-first
+// heuristics — the standard robust algorithm for monophonic pitch tracking.
 function autoCorrelate(buf, sr) {
-  const N = buf.length, HALF = N >> 1;
+  const N = buf.length;
   let sumSq = 0;
   for (let i = 0; i < N; i++) sumSq += buf[i] ** 2;
   if (Math.sqrt(sumSq / N) < 0.012) return -1;
 
-  // Only scan lags that correspond to the playable frequency range (80–2000 Hz).
-  // This cuts the inner loop from O(HALF²) to O(~500×HALF) — ~10× faster on phone.
-  const minLag = Math.max(1, Math.floor(sr / 2000));
-  const maxLag = Math.min(HALF - 2, Math.ceil(sr / 80));
+  const minLag = Math.max(2, Math.floor(sr / 2000));   // ~2000 Hz upper bound
+  const maxLag = Math.min(N - 1, Math.ceil(sr / 80));   // ~80 Hz lower bound
 
-  const corrs = new Float32Array(maxLag + 2);
-  for (let o = minLag; o <= maxLag; o++) {
-    let c = 0;
-    for (let i = 0; i < HALF; i++) c += Math.abs(buf[i] - buf[i + o]);
-    corrs[o] = 1 - c / HALF;
+  // Difference function d(tau) = sum of squared differences at each lag
+  const d = new Float32Array(maxLag + 1);
+  for (let tau = 1; tau <= maxLag; tau++) {
+    let sum = 0;
+    const limit = N - tau;
+    for (let i = 0; i < limit; i++) {
+      const diff = buf[i] - buf[i + tau];
+      sum += diff * diff;
+    }
+    d[tau] = sum;
   }
 
-  // Scan from the LONGEST lag (lowest frequency) down to the shortest (highest
-  // frequency) and accept the first clear peak above threshold. A struck piano
-  // note's fundamental is the longest period with strong self-similarity —
-  // its harmonics/overtones only produce peaks at shorter lags (higher
-  // frequencies). Scanning the other direction (short→long, as this used to)
-  // grabs whichever harmonic happens to be loudest first, which is why
-  // detection was jumping to unrelated pitches (e.g. a played D reading back
-  // as A#, C#, G# — all different overtones, not even octaves of D).
-  for (let o = maxLag - 1; o >= minLag + 1; o--) {
-    const c = corrs[o];
-    if (c > 0.7 && c >= corrs[o - 1] && c >= corrs[o + 1]) {
-      const prev = corrs[o - 1], next = corrs[o + 1];
-      const denom = prev - 2 * c + next;
-      const shift = Math.abs(denom) > 1e-9 ? 0.5 * (prev - next) / denom : 0;
-      return sr / (o + shift);
+  // Cumulative mean normalized difference function
+  const cmnd = new Float32Array(maxLag + 1);
+  cmnd[0] = 1;
+  let running = 0;
+  for (let tau = 1; tau <= maxLag; tau++) {
+    running += d[tau];
+    cmnd[tau] = d[tau] / (running / tau);
+  }
+
+  // First dip below threshold within the playable range is the fundamental —
+  // walk forward while still descending to land on the true local minimum.
+  const threshold = 0.15;
+  let tau = -1;
+  for (let t = minLag; t <= maxLag; t++) {
+    if (cmnd[t] < threshold) {
+      while (t + 1 <= maxLag && cmnd[t + 1] < cmnd[t]) t++;
+      tau = t;
+      break;
     }
   }
-  return -1;
+  if (tau === -1) return -1;
+
+  // Parabolic interpolation around tau for sub-sample precision
+  const x0 = tau > minLag ? tau - 1 : tau;
+  const x2 = tau < maxLag ? tau + 1 : tau;
+  let betterTau;
+  if (x0 === tau) betterTau = cmnd[tau] <= cmnd[x2] ? tau : x2;
+  else if (x2 === tau) betterTau = cmnd[tau] <= cmnd[x0] ? tau : x0;
+  else {
+    const s0 = cmnd[x0], s1 = cmnd[tau], s2 = cmnd[x2];
+    const denom = 2 * (2 * s1 - s2 - s0);
+    betterTau = Math.abs(denom) > 1e-9 ? tau + (s2 - s0) / denom : tau;
+  }
+
+  return sr / betterTau;
 }
 
 // ─── NOTE NAMING ─────────────────────────────────────────────────────────────
