@@ -43,6 +43,7 @@ let shootStars = [];
 let lastPopMs  = 0;
 let micLevel   = 0;
 let speedBoost = 0;
+let lastHeard  = { text: '', ts: 0 };   // live "Hearing: X (freq)" debug readout during play
 
 // Calibration
 let calibData   = {};   // { C: freq, D: freq, … } loaded from localStorage or built during calibration
@@ -50,15 +51,11 @@ let calIdx      = 0;
 let calSamples  = [];
 let calCooldown = 0;
 
-// Onset detection — the primary gating mechanism for both game and calibration
-const RMS_HIST = 5;                      // slots = 5 × 80 ms = 400 ms look-back
+// Onset detection — used only during calibration (see detectPitch)
+const RMS_HIST = 5;                      // slots = 5 × 50 ms = 250 ms look-back
 let rmsHistory = new Float32Array(RMS_HIST);
 let rmsHistIdx = 0;
 let onsetEnd   = 0;                      // timestamp when current onset window closes
-
-// In-window debounce for game (require 2 same-note hits within one onset)
-let lastDetNote  = null;
-let lastDetCount = 0;
 
 // ─── AUDIO ───────────────────────────────────────────────────────────────────
 let audioCtx   = null;
@@ -83,7 +80,7 @@ async function startMic() {
     analyser.smoothingTimeConstant = 0;
     src.connect(analyser);
     pitchBuf   = new Float32Array(analyser.fftSize);
-    pitchTimer = setInterval(detectPitch, 80);
+    pitchTimer = setInterval(detectPitch, 50);
     return true;
   } catch (err) {
     console.error('startMic:', err);
@@ -138,20 +135,20 @@ function detectPitch() {
     return;
   }
 
-  // ── Game mode: debounce + post-pop cooldown ───────────────────────────────
-  // Onset detection is NOT used here. When playing a melody, consecutive notes
-  // keep rmsHistory elevated so the next note can't meet the 2.2× jump
-  // threshold — that approach only works when playing from silence.
-  // Instead: require 2 consecutive same-note reads (filters noise) and a
-  // 350 ms cooldown after each pop (prevents the ringing note re-triggering).
+  // ── Game mode: single-hit accept against the one expected note ───────────
+  // Onset detection is NOT used here (see note above — doesn't survive a
+  // melody). We accept on the FIRST detection instead of debouncing, because
+  // unlike calibration (any of 6 notes is a "hit"), here a hit only counts if
+  // it matches the one specific note the active balloon needs — random noise
+  // landing on that exact note is unlikely, so we don't need to wait for a
+  // second confirming read (which was silently dropping short/light notes).
+  // A 350 ms post-pop cooldown still prevents the same ringing note re-firing.
   if (gamePhase !== 'playing') return;
   const freq = autoCorrelate(pitchBuf, audioCtx.sampleRate);
   if (freq < 0) return;
   const note = freqToNote(freq);
+  updateGameHeard(freq, note);
   if (!note || !COLORS[note]) return;
-  if (note !== lastDetNote) { lastDetNote = note; lastDetCount = 1; return; }
-  lastDetCount++;
-  if (lastDetCount < 2) return;
   const now = Date.now();
   if (now - lastPopMs < 350) return;
   const b0 = balloons[0];
@@ -262,6 +259,9 @@ function openCalibration() {
   calIdx      = 0;
   calSamples  = [];
   calCooldown = 0;
+  onsetEnd    = 0;
+  rmsHistory.fill(0);
+  rmsHistIdx  = 0;
   // Don't clear calibData here — it remains usable if the user cancels mid-way
   document.getElementById('calScreen').style.display   = 'flex';
   document.getElementById('startScreen').style.display = 'none';
@@ -330,6 +330,13 @@ function updateCalHeard(freq) {
   el.textContent = `Hearing: ${note}${oct}  (${Math.round(freq)} Hz)`;
 }
 
+// Live debug readout during gameplay so mismatches between what's played and
+// what's detected are visible instead of guessed at.
+function updateGameHeard(freq, note) {
+  if (freq < 80) return;
+  lastHeard = { text: `${note || '?'}  (${Math.round(freq)} Hz)`, ts: Date.now() };
+}
+
 function finishCalNote() {
   // Use the median of the collected samples as the calibrated frequency
   const sorted = [...calSamples].sort((a, b) => a - b);
@@ -376,11 +383,7 @@ function resetGame() {
   shootStars = [];
   lastPopMs  = 0;
   speedBoost = 0;
-  lastDetNote  = null;
-  lastDetCount = 0;
-  onsetEnd     = 0;
-  rmsHistory.fill(0);
-  rmsHistIdx = 0;
+  lastHeard  = { text: '', ts: 0 };
   for (let i = 0; i < Math.min(VISIBLE_CNT, SONG.length); i++) {
     const b = makeBalloon(i);
     b.targetY = HIT_Y + i * QUEUE_GAP;
@@ -449,8 +452,6 @@ function popBalloon(b) {
   spawnConfetti(b);
   playPop();
   speedBoost   = 1;
-  lastDetNote  = null;
-  lastDetCount = 0;
   setTimeout(() => {
     balloons = balloons.filter(x => x !== b);
     songIdx++;
@@ -775,6 +776,12 @@ function drawHUD(t) {
     cx.font=`bold ${Math.min(22,Math.floor(canvas.width*0.056))}px Arial`;
     cx.textAlign='center'; cx.textBaseline='middle';
     cx.fillText(`🎵  Play  ${active.note}`,canvas.width/2,cy2);
+  }
+
+  if (lastHeard.text && Date.now()-lastHeard.ts < 1000) {
+    cx.fillStyle='rgba(255,255,200,0.5)'; cx.font='12px monospace';
+    cx.textAlign='center'; cx.textBaseline='alphabetic';
+    cx.fillText(`Hearing: ${lastHeard.text}`,canvas.width/2,canvas.height-32);
   }
 
   const mw=100,mh=6,mx=(canvas.width-mw)/2,my=canvas.height-18;
